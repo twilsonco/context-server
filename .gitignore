@@ -33,7 +33,6 @@ ENV/
 
 # Project specific
 notes/
-faiss_index/
 *.faiss
 
 # OS specific
