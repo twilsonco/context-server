@@ -46,7 +46,7 @@ def parse_markdown_content(content: str):
     day_lines = []
     for line in lines:
         if line.startswith('# '):
-            day_lines.append(line[2:].strip())
+            continue  # Skip memory titles in day content
         elif line.startswith('## '):
             day_lines.append(line[3:].strip())
         elif line.startswith('>'):
@@ -73,17 +73,16 @@ def parse_markdown_content(content: str):
                     sec_text = "\n".join(current_sec_lines).strip()
                     sec_all_text = "\n".join(current_sec_all_lines).strip()
                     if sec_all_text:
-                        text = f"{current_sec_title}\n{sec_all_text}" if config["include_titles"] else sec_all_text
+                        text = f"## {current_sec_title}\n{sec_all_text}" if config["include_titles"] else sec_all_text
                         segments['section'].append({
                             "text": text,
                             "title": current_sec_title,
                             "file_memory": current_mem_title
                         })
                 # Add memory with all content
-                mem_text = "\n".join(current_mem_lines).strip()
                 mem_all_text = "\n".join(current_mem_all_lines).strip()
                 if mem_all_text:
-                    text = f"{current_mem_title}\n{mem_all_text}" if config["include_titles"] else mem_all_text
+                    text = f"# {current_mem_title}\n{mem_all_text}" if config["include_titles"] else mem_all_text
                     segments['memory'].append({
                         "text": text,
                         "title": current_mem_title
@@ -92,7 +91,7 @@ def parse_markdown_content(content: str):
             # Start new memory
             current_mem_title = line[2:].strip()
             current_mem_lines = []
-            current_mem_all_lines = [current_mem_title]  # Include memory title
+            current_mem_all_lines = []  # Don't include title in all_lines
             current_sec_title = None
             current_sec_lines = []
             current_sec_all_lines = []
@@ -103,7 +102,7 @@ def parse_markdown_content(content: str):
                 sec_text = "\n".join(current_sec_lines).strip()
                 sec_all_text = "\n".join(current_sec_all_lines).strip()
                 if sec_all_text:
-                    text = f"{current_sec_title}\n{sec_all_text}" if config["include_titles"] else sec_all_text
+                    text = f"## {current_sec_title}\n{sec_all_text}" if config["include_titles"] else sec_all_text
                     segments['section'].append({
                         "text": text,
                         "title": current_sec_title,
@@ -113,10 +112,10 @@ def parse_markdown_content(content: str):
             # Start new section
             current_sec_title = line[3:].strip()
             current_sec_lines = []
-            current_sec_all_lines = [current_sec_title]  # Include section title
+            current_sec_all_lines = []  # Don't include title in all_lines
             if current_mem_title is not None:
                 current_mem_all_lines.append("")  # Add blank line before section
-                current_mem_all_lines.append(line.strip())  # Add section header to memory
+                current_mem_all_lines.append(line)  # Add section header with ## to memory
 
         elif line.startswith('>'):
             line_text = line[1:].strip()
@@ -154,17 +153,16 @@ def parse_markdown_content(content: str):
             sec_text = "\n".join(current_sec_lines).strip()
             sec_all_text = "\n".join(current_sec_all_lines).strip()
             if sec_all_text:
-                text = f"{current_sec_title}\n{sec_all_text}" if config["include_titles"] else sec_all_text
+                text = f"## {current_sec_title}\n{sec_all_text}" if config["include_titles"] else sec_all_text
                 segments['section'].append({
                     "text": text,
                     "title": current_sec_title,
                     "file_memory": current_mem_title
                 })
         # Add final memory with all content
-        mem_text = "\n".join(current_mem_lines).strip()
         mem_all_text = "\n".join(current_mem_all_lines).strip()
         if mem_all_text:
-            text = f"{current_mem_title}\n{mem_all_text}" if config["include_titles"] else mem_all_text
+            text = f"# {current_mem_title}\n{mem_all_text}" if config["include_titles"] else mem_all_text
             segments['memory'].append({
                 "text": text,
                 "title": current_mem_title

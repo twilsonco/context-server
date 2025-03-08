@@ -2,7 +2,7 @@
   "docs_dir": "./notes",
   "timezone": "America/Denver",
   "include_titles": true,
-  "retrieval_mode": "memory",
+  "retrieval_mode": "line",
   "recency_weight": 0.0,
   "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
   "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",

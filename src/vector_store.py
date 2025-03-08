@@ -8,6 +8,10 @@ from .config import config
 class VectorStore:
     def __init__(self):
         self.embedder = SentenceTransformer(config["embedding_model"])
+        # Enable multi-process encoding
+        self.embedder.max_seq_length = 512  # Optimize for typical text length
+        self.embedder.parallel_tokenization = True  # Enable parallel tokenization
+        
         self.cross_encoder = CrossEncoder(config["cross_encoder_model"])
         self.vector_dim = self.embedder.get_sentence_embedding_dimension()
         
@@ -117,40 +121,56 @@ class VectorStore:
             'day': [], 'memory': [], 'section': [], 'line': []
         }
 
+        # Prepare batches for parallel encoding
         for seg_type, seg_list in segments.items():
+            if not seg_list:
+                continue
+
+            # Prepare texts and metadata
+            texts = []
+            metas = []
             for seg in seg_list:
-                text = seg["text"]
-                title = seg.get("title")
-                vec = self.embedder.encode(text, normalize_embeddings=True).astype('float32')
-                idx = self.id_counters[seg_type]
-                self.id_counters[seg_type] += 1
+                texts.append(seg["text"])
+                metas.append({
+                    "title": seg.get("title"),
+                    "file_memory": seg.get("file_memory"),
+                    "file_section": seg.get("file_section")
+                })
 
-                self.indices[seg_type].add_with_ids(
-                    np.array([vec]), 
-                    np.array([idx], dtype='int64')
-                )
+            # Encode all texts in parallel
+            vectors = self.embedder.encode(
+                texts,
+                batch_size=32,  # Adjust based on your GPU/CPU
+                show_progress_bar=True,
+                convert_to_numpy=True,
+                normalize_embeddings=True
+            ).astype('float32')
 
+            # Add encoded vectors to FAISS
+            ids = np.array([self.id_counters[seg_type] + i for i in range(len(texts))], dtype='int64')
+            self.indices[seg_type].add_with_ids(vectors, ids)
+
+            # Store document info
+            for i, (text, meta) in enumerate(zip(texts, metas)):
+                idx = int(ids[i])
                 doc_info = {
                     "text": text,
-                    "title": title,
+                    "title": meta["title"],
                     "file": file_path,
                     "date": file_date,
                     "type": seg_type
                 }
 
-                # Add parent information for all segment types that need it
                 if seg_type in ('section', 'line'):
-                    if seg.get("file_memory"):
-                        doc_info["parent_memory"] = seg["file_memory"]
-                    if seg.get("file_section"):
-                        doc_info["parent_section"] = seg["file_section"]
-                elif seg_type == 'memory':
-                    # For memory segments, include the title in the text if not already included
-                    if title and not text.startswith(title):
-                        doc_info["text"] = f"{title}\n{text}"
+                    if meta["file_memory"]:
+                        doc_info["parent_memory"] = meta["file_memory"]
+                    if meta["file_section"]:
+                        doc_info["parent_section"] = meta["file_section"]
 
                 self.id_to_doc[seg_type][idx] = doc_info
                 self.file_index_ids[file_path][seg_type].append(idx)
+
+            self.id_counters[seg_type] += len(texts)
 
         self.save_indices()
 
@@ -163,7 +183,14 @@ class VectorStore:
         recency = config["recency_weight"] if recency_weight is None else recency_weight
         n_res = config["n_results"] if n_results is None else n_results
 
-        query_vec = self.embedder.encode(query_text, normalize_embeddings=True).astype('float32')
+        # Encode query in parallel with other queries if any
+        query_vec = self.embedder.encode(
+            query_text,
+            batch_size=1,
+            show_progress_bar=False,
+            normalize_embeddings=True
+        ).astype('float32')
+
         D, I = self.indices[search_mode].search(
             np.array([query_vec]), 
             config["n_candidates"]
@@ -184,9 +211,13 @@ class VectorStore:
         if not candidates:
             return []
 
-        # Cross-encoder reranking
+        # Cross-encoder reranking in parallel
         pairs = [(query_text, c["doc"]["text"]) for c in candidates]
-        ce_scores = self.cross_encoder.predict(pairs)
+        ce_scores = self.cross_encoder.predict(
+            pairs,
+            batch_size=32,  # Adjust based on your GPU/CPU
+            show_progress_bar=False
+        )
 
         for c, ce_score in zip(candidates, ce_scores):
             score = float(ce_score)
