@@ -1,6 +1,6 @@
 # Personal Context Server
 
-![context-server](https://github.com/Maclean-D/personal-context/raw/main/context-server.png)
+![context-server](https://raw.githubusercontent.com/Maclean-D/context-server/main/context-server.png)
 
 A server that puts your lifelog into indexed markdown files, and makes it available through a REST API and web interface.
 
