@@ -44,7 +44,7 @@ A powerful server that indexes and retrieves your personal context from Markdown
 
 4. Start the server:
    ```bash
-   python -m src.app
+   python main.py
    ```
 
 The server will start on `http://localhost:5712` by default.
