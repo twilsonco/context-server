@@ -50,7 +50,7 @@ A server that puts your Limitless AI lifelog into indexed markdown files, and ma
    python main.py
    ```
 
-6. View server status and change settings at http://localhost:5712
+6. Continute to `Starting The Server`
 
 ## Starting The Server
 
@@ -67,6 +67,8 @@ A server that puts your Limitless AI lifelog into indexed markdown files, and ma
    ```bash
    python main.py
    ```
+
+3. 6. View server status and change settings at http://localhost:5712
 
 ## Using the API
 
