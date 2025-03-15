@@ -2,23 +2,22 @@
 
 ![context-server](https://github.com/Maclean-D/personal-context/raw/main/context-server.png)
 
-A powerful server that indexes and retrieves your personal context from Markdown files, making it available through a REST API and web interface.
+A server that puts your lifelog into indexed markdown files, and makes it available through a REST API and web interface.
 
 ## Features
 
-- Continuous monitoring and indexing of Markdown files
+- Fetches Lifelog entries
+- Persistent vector database using FAISS
 - Multiple retrieval modes:
   - Day: Search across entire days
   - Memory: Search within specific memories
   - Section: Search within sections of memories
   - Line: Search individual lines/quotes
-- Automatic timezone conversion
 - Recency-weighted search results
 - Web UI for settings and queries
 - REST API for integration
-- Persistent vector database using FAISS
 
-## Installation
+## First Time Installation
 
 1. Clone the repository:
    ```bash
@@ -26,7 +25,11 @@ A powerful server that indexes and retrieves your personal context from Markdown
    cd context-server
    ```
 
-2. Create and activate a virtual environment:
+2. Get a [Limitless API key](https://app.limitless.ai) (Account > Developers)
+
+3. Enter it in `config.json`
+
+3. Create and activate a virtual environment:
    ```bash
    # Windows
    python -m venv venv
@@ -37,67 +40,37 @@ A powerful server that indexes and retrieves your personal context from Markdown
    source venv/bin/activate
    ```
 
-3. Install dependencies:
+4. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Start the server:
+5. Start the server:
    ```bash
    python main.py
    ```
 
-The server will start on `http://localhost:5712` by default.
+6. View server status and change settings at http://localhost:5712
 
-## Usage
+## Starting The Server
 
-1. **File Organization**
-   - Place your Markdown files in the `notes/YEAR/MONTH/` directory structure
-   - Files are automatically indexed when added or modified
+1. activate a virtual environment:
+   ```bash
+   # Windows
+   .\venv\Scripts\activate
 
-2. **Web Interface**
-   - Access `http://localhost:5712` in your browser
-   - Configure settings
-   - Test queries
-   - Monitor indexing progress
+   # Linux/Mac
+   source venv/bin/activate
+   ```
 
-3. **API Integration**
-   - Works, no docs yet WIP.
+2. Start the server:
+   ```bash
+   python main.py
+   ```
 
-## File Format
+## Using the API
 
-Your Markdown files should follow this structure:
-
-```markdown
-# Memory Title
-Regular text under the memory
-
-## Section Title
-Section content
-
-> Quote or specific line to remember
-More section content
-```
-
-## Configuration
-
-Default settings in `config.json`:
-```json
-{
-  "docs_dir": "./notes",
-  "timezone": "auto",
-  "include_titles": true,
-  "retrieval_mode": "memory",
-  "recency_weight": 0.0,
-  "n_candidates": 10,
-  "n_results": 5,
-  "port": 5712
-}
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+Once your server is started visit http://localhost:5712/docs#/ to view documentation.
 
 ## Star History
 
