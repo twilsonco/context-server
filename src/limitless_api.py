@@ -24,7 +24,7 @@ class LimitlessAPI:
         
         all_lifelogs = []
         cursor = None
-        batch_size = 500  # Much larger batch size
+        batch_size = 10  # Much larger batch size
         max_retries = 3
         retry_delay = 1  # seconds
         

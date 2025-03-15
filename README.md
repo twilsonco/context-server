@@ -2,7 +2,7 @@
 
 ![context-server](https://raw.githubusercontent.com/Maclean-D/context-server/main/context-server.png)
 
-A server that puts your lifelog into indexed markdown files, and makes it available through a REST API and web interface.
+A server that puts your Limitless AI lifelog into indexed markdown files, and makes it available through a REST API and web interface.
 
 ## Features
 
@@ -50,7 +50,7 @@ A server that puts your lifelog into indexed markdown files, and makes it availa
    python main.py
    ```
 
-6. View server status and change settings at http://localhost:5712
+6. Continute to `Starting The Server`
 
 ## Starting The Server
 
@@ -67,6 +67,8 @@ A server that puts your lifelog into indexed markdown files, and makes it availa
    ```bash
    python main.py
    ```
+
+3. 6. View server status and change settings at http://localhost:5712
 
 ## Using the API
 

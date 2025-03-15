@@ -14,7 +14,14 @@ from .file_watcher import MDWatcher
 from .limitless_api import sync_lifelogs, get_last_fetched_date
 from .indexer import index_files
 
-app = FastAPI(title="Markdown Vector Search", version="1.0")
+app = FastAPI(
+    title="Context Server",
+    version="1.0",
+    description="""
+    An API for semantic search over lifelog entries. This service indexes and searches through lifelog entries,
+    supporting different granularity levels (day, memory, section, line) and providing real-time updates through file watching.
+    """
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -93,7 +100,19 @@ def on_shutdown():
 
 @app.get("/api/settings", response_class=JSONResponse)
 def get_settings():
-    """Get current settings and indexing status."""
+    """
+    Retrieve current application settings and indexing status.
+
+    Returns a JSON object containing:
+    - settings: Current configuration including docs directory, timezone, retrieval preferences
+    - status: Indexing status including:
+        - Last full/change index times
+        - Number of indexed segments by type (day/memory/section/line)
+        - Current indexing progress if active
+    
+    Returns:
+        JSONResponse: Current settings and indexing status
+    """
     indexing_status = vector_store.get_indexing_status()
     return {
         "settings": {
@@ -121,7 +140,29 @@ def get_settings():
 
 @app.post("/api/settings", response_class=JSONResponse)
 def update_settings(new_settings: dict):
-    """Update application settings."""
+    """
+    Update application settings.
+
+    Allowed settings:
+    - timezone: String, valid timezone name (e.g., 'UTC', 'America/New_York')
+    - include_titles: Boolean, whether to include titles in embeddings
+    - retrieval_mode: String, default search mode ('day', 'memory', 'section', 'line')
+    - recency_weight: Float, weight for recency bias in search results
+    - n_candidates: Integer, number of initial candidates for reranking
+    - n_results: Integer, number of final results to return
+    - limitless_api_key: String, API key for Limitless integration
+
+    Note: Some changes may require an index refresh to take effect.
+
+    Args:
+        new_settings (dict): Dictionary of settings to update
+
+    Returns:
+        JSONResponse: Updated settings and confirmation message
+    
+    Raises:
+        HTTPException: If timezone is invalid
+    """
     allowed = {
         "timezone", "include_titles", "retrieval_mode",
         "recency_weight", "n_candidates", "n_results",
@@ -162,7 +203,31 @@ def update_settings(new_settings: dict):
 
 @app.get("/api/query", response_class=JSONResponse)
 def query(q: str, mode: str = None, recency_weight: float = None, n_results: int = None):
-    """Search the vector store."""
+    """
+    Search the vector store for semantically similar content.
+
+    The search uses a two-stage retrieval process:
+    1. Initial retrieval using sentence embeddings
+    2. Reranking using a cross-encoder model
+
+    Args:
+        q (str): The search query text
+        mode (str, optional): Retrieval granularity ('day', 'memory', 'section', 'line'). 
+            Defaults to configured retrieval_mode.
+        recency_weight (float, optional): Weight for recency bias. Higher values favor recent content.
+            Defaults to configured recency_weight.
+        n_results (int, optional): Number of results to return. 
+            Defaults to configured n_results.
+
+    Returns:
+        JSONResponse: Search results containing:
+            - query: Original search query
+            - mode: Retrieval mode used
+            - results: List of matching segments with metadata
+
+    Raises:
+        HTTPException: If query is empty
+    """
     if not q or not q.strip():
         raise HTTPException(status_code=400, detail="Query 'q' cannot be empty.")
     
@@ -181,7 +246,17 @@ def query(q: str, mode: str = None, recency_weight: float = None, n_results: int
 
 @app.post("/api/refresh", response_class=JSONResponse)
 def refresh_index():
-    """Re-index all files."""
+    """
+    Perform a full refresh of the search index.
+
+    This operation:
+    1. Clears the existing vector store
+    2. Re-indexes all markdown files in the configured directory
+    3. Updates the last indexing timestamp
+
+    Returns:
+        JSONResponse: Confirmation message and timestamp of refresh
+    """
     global last_full_index_time, last_change_index_time
     vector_store.reset()
     watcher.index_all()
@@ -194,7 +269,19 @@ def refresh_index():
 
 @app.post("/api/reset", response_class=JSONResponse)
 def reset_index():
-    """Clear the index."""
+    """
+    Clear the search index completely.
+
+    This operation:
+    1. Removes all indexed content from the vector store
+    2. Resets indexing timestamps
+    3. Does NOT delete any source files
+
+    Note: Use /api/refresh to rebuild the index after resetting.
+
+    Returns:
+        JSONResponse: Confirmation message
+    """
     global last_full_index_time, last_change_index_time
     vector_store.reset()
     last_full_index_time = None
@@ -205,7 +292,21 @@ def reset_index():
 
 @app.get("/fetch-new", response_class=HTMLResponse)
 async def fetch_new():
-    """Fetch new lifelog entries."""
+    """
+    Fetch and index new lifelog entries from the Limitless API.
+
+    This endpoint:
+    1. Retrieves new entries since the last sync
+    2. Saves them as markdown files
+    3. Indexes the new content
+    4. Updates the last sync timestamp
+
+    Returns:
+        HTMLResponse: Success/error message with refresh button
+
+    Raises:
+        HTTPException: If Limitless API key is not configured
+    """
     if not config.get("limitless_api_key"):
         raise HTTPException(status_code=400, detail="Limitless API key not configured")
     
@@ -247,7 +348,21 @@ async def fetch_new():
 
 @app.post("/api/refresh-lifelogs", response_class=JSONResponse)
 async def refresh_lifelogs():
-    """Refresh lifelogs from the Limitless API."""
+    """
+    Refresh lifelogs from the Limitless API.
+
+    This endpoint:
+    1. Syncs all available lifelog entries
+    2. Converts them to markdown format
+    3. Updates existing files if needed
+    4. Returns the sync completion time
+
+    Returns:
+        JSONResponse: Success message and sync timestamp
+
+    Raises:
+        HTTPException: If Limitless API key is not configured or sync fails
+    """
     if not config.get("limitless_api_key"):
         raise HTTPException(status_code=400, detail="Limitless API key not configured")
     
@@ -262,7 +377,18 @@ async def refresh_lifelogs():
 
 @app.get("/", response_class=HTMLResponse)
 def serve_ui():
-    """Serve the web UI."""
+    """
+    Serve the web UI for managing the search service.
+
+    The UI provides:
+    - Current indexing status
+    - Configuration settings
+    - Search interface
+    - Index maintenance operations
+
+    Returns:
+        HTMLResponse: HTML page containing the management UI
+    """
     indexing_status = vector_store.get_indexing_status()
     return f"""
     <html>
