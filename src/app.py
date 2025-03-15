@@ -1,6 +1,6 @@
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import os
@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 from .config import config, CONFIG_PATH
 from .vector_store import VectorStore
 from .file_watcher import MDWatcher
+from .limitless_api import sync_lifelogs, get_last_fetched_date
+from .indexer import index_files
 
 app = FastAPI(title="Markdown Vector Search", version="1.0")
 app.add_middleware(
@@ -30,24 +32,57 @@ watcher = MDWatcher(os.path.abspath(config["docs_dir"]), vector_store)
 last_full_index_time = None
 last_change_index_time = None
 
+def get_new_files_since(last_indexed_date):
+    """Get list of files modified since the last indexed date."""
+    new_files = []
+    try:
+        for root, dirs, files in os.walk(config["docs_dir"]):
+            for file in files:
+                if file.endswith(".md"):
+                    file_path = os.path.join(root, file)
+                    file_mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    if not last_indexed_date or file_mtime > last_indexed_date:
+                        new_files.append(file_path)
+    except Exception as e:
+        print(f"Error getting new files: {e}")
+    return new_files
+
 @app.on_event("startup")
-def on_startup():
-    """Initialize the application on startup."""
-    global last_full_index_time, last_change_index_time
-    logger.info("Application startup beginning...")
+async def startup_event():
+    """Initialize the server and sync/index only new files."""
+    if not os.path.exists(config["docs_dir"]):
+        os.makedirs(config["docs_dir"])
     
-    logger.info("Ensuring docs directory exists...")
-    os.makedirs(config["docs_dir"], exist_ok=True)
+    # Sync new lifelogs if API key is configured
+    if config.get("limitless_api_key"):
+        sync_lifelogs()
     
-    logger.info("Starting initial indexing of existing files...")
-    watcher.index_all()
+    # Only index files that are new or modified
+    last_indexed_file = os.path.join(config["docs_dir"], ".last_indexed")
+    last_indexed_date = None
     
-    last_full_index_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    last_change_index_time = last_full_index_time
+    try:
+        if os.path.exists(last_indexed_file):
+            with open(last_indexed_file, 'r') as f:
+                timestamp = float(f.read().strip())
+                last_indexed_date = datetime.fromtimestamp(timestamp)
+    except Exception as e:
+        print(f"Error reading last indexed date: {e}")
     
-    logger.info("Starting file watcher...")
+    new_files = get_new_files_since(last_indexed_date)
+    if new_files:
+        print(f"Indexing {len(new_files)} new or modified files...")
+        index_files(new_files, vector_store)
+    
+    # Update last indexed timestamp
+    try:
+        with open(last_indexed_file, 'w') as f:
+            f.write(str(datetime.now().timestamp()))
+    except Exception as e:
+        print(f"Error writing last indexed date: {e}")
+    
+    # Start the file watcher
     watcher.start()
-    logger.info("Application startup complete")
 
 @app.on_event("shutdown")
 def on_shutdown():
@@ -68,7 +103,8 @@ def get_settings():
             "retrieval_mode": config["retrieval_mode"],
             "recency_weight": config["recency_weight"],
             "n_candidates": config["n_candidates"],
-            "n_results": config["n_results"]
+            "n_results": config["n_results"],
+            "limitless_api_key": config.get("limitless_api_key", "")
         },
         "status": {
             "last_full_index_time": last_full_index_time,
@@ -88,7 +124,8 @@ def update_settings(new_settings: dict):
     """Update application settings."""
     allowed = {
         "timezone", "include_titles", "retrieval_mode",
-        "recency_weight", "n_candidates", "n_results"
+        "recency_weight", "n_candidates", "n_results",
+        "limitless_api_key"
     }
     
     for key, value in new_settings.items():
@@ -108,6 +145,9 @@ def update_settings(new_settings: dict):
                     config["timezone"] = value
                 except Exception as e:
                     raise HTTPException(status_code=400, detail=f"Invalid timezone: {e}")
+            elif key == "limitless_api_key":
+                # Trigger a sync when API key is updated
+                sync_lifelogs(value)
 
     try:
         with open(CONFIG_PATH, 'w') as f:
@@ -163,6 +203,63 @@ def reset_index():
         "message": "Index cleared. Use refresh to re-index files."
     }
 
+@app.get("/fetch-new", response_class=HTMLResponse)
+async def fetch_new():
+    """Fetch new lifelog entries."""
+    if not config.get("limitless_api_key"):
+        raise HTTPException(status_code=400, detail="Limitless API key not configured")
+    
+    try:
+        sync_lifelogs()
+        # Only index new files
+        last_indexed_file = os.path.join(config["docs_dir"], ".last_indexed")
+        last_indexed_date = None
+        
+        try:
+            if os.path.exists(last_indexed_file):
+                with open(last_indexed_file, 'r') as f:
+                    timestamp = float(f.read().strip())
+                    last_indexed_date = datetime.fromtimestamp(timestamp)
+        except Exception:
+            pass
+        
+        new_files = get_new_files_since(last_indexed_date)
+        if new_files:
+            index_files(new_files)
+            
+        # Update last indexed timestamp
+        with open(last_indexed_file, 'w') as f:
+            f.write(str(datetime.now().timestamp()))
+        
+        return """
+        <div class="alert alert-success">
+            Successfully fetched and indexed new entries.
+            <button onclick="window.location.reload()" class="btn btn-primary">Refresh Page</button>
+        </div>
+        """
+    except Exception as e:
+        return f"""
+        <div class="alert alert-danger">
+            Error fetching new entries: {str(e)}
+            <button onclick="window.location.reload()" class="btn btn-primary">Refresh Page</button>
+        </div>
+        """
+
+@app.post("/api/refresh-lifelogs", response_class=JSONResponse)
+async def refresh_lifelogs():
+    """Refresh lifelogs from the Limitless API."""
+    if not config.get("limitless_api_key"):
+        raise HTTPException(status_code=400, detail="Limitless API key not configured")
+    
+    try:
+        sync_lifelogs()
+        return {
+            "message": "Successfully refreshed lifelogs.",
+            "last_sync": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/", response_class=HTMLResponse)
 def serve_ui():
     """Serve the web UI."""
@@ -184,6 +281,8 @@ def serve_ui():
           .progress {{ width: 100%; background-color: #f0f0f0; }}
           .progress-bar {{ height: 20px; background-color: #4CAF50; text-align: center; line-height: 20px; color: white; }}
           .warning {{ color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 0.75rem 1.25rem; margin-bottom: 1rem; border-radius: 0.25rem; }}
+          .button-group {{ margin-top: 1em; }}
+          .button-group button {{ margin-right: 0.5em; }}
         </style>
       </head>
       <body>
@@ -242,12 +341,19 @@ def serve_ui():
             <label>Results (K):</label>
             <input type="number" id="n_results" value="{config["n_results"]}" />
           </div>
+          <div class="field">
+            <label>API Key:</label>
+            <input type="password" id="api_key" value="{config.get("limitless_api_key", "")}" size="40"/>
+          </div>
           <button onclick="saveSettings()">Save Settings</button>
         </div>
         <div class="section">
           <h2>Maintenance</h2>
-          <button onclick="refreshIndex()">Refresh Index</button>
-          <button onclick="confirmReset()">Reset Index</button>
+          <div class="button-group">
+            <button onclick="refreshIndex()">Refresh Index</button>
+            <button onclick="confirmReset()">Reset Index</button>
+            <button onclick="refreshLifelogs()">Refresh Lifelogs</button>
+          </div>
         </div>
         <div class="section">
           <h2>Test Query</h2>
@@ -270,7 +376,8 @@ def serve_ui():
               retrieval_mode: document.getElementById('mode').value,
               recency_weight: parseFloat(document.getElementById('recency').value) || 0.0,
               n_candidates: parseInt(document.getElementById('n_candidates').value) || 10,
-              n_results: parseInt(document.getElementById('n_results').value) || 5
+              n_results: parseInt(document.getElementById('n_results').value) || 5,
+              limitless_api_key: document.getElementById('api_key').value
             }};
             fetch('/api/settings', {{
               method: 'POST',
@@ -305,6 +412,16 @@ def serve_ui():
                 }})
                 .catch(err => alert('Error resetting index: ' + err));
             }}
+          }}
+
+          function refreshLifelogs() {{
+            fetch('/api/refresh-lifelogs', {{ method: 'POST' }})
+              .then(res => res.json())
+              .then(res => {{
+                alert(res.message || 'Lifelogs refreshed.');
+                location.reload();
+              }})
+              .catch(err => alert('Error refreshing lifelogs: ' + err));
           }}
 
           function runQuery() {{
@@ -359,4 +476,10 @@ def serve_ui():
         </script>
       </body>
     </html>
-    """ 
+    """
+
+# Remove the old settings route and redirect since we're serving the UI at root
+@app.get("/settings", response_class=RedirectResponse)
+async def settings_redirect():
+    """Redirect /settings to root."""
+    return RedirectResponse(url="/") 

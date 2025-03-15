@@ -1,6 +1,7 @@
 import os
 import faiss
 import numpy as np
+import json
 from datetime import datetime
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from .config import config
@@ -23,14 +24,17 @@ class VectorStore:
             'line': self._load_or_create_index('line')
         }
         
+        # Load or initialize metadata
+        metadata = self._load_metadata()
+        
         # Data mappings
-        self.file_index_ids = {}  # { file_path: {"day": [ids], "memory": [...], ... } }
-        self.id_to_doc = {
+        self.file_index_ids = metadata.get('file_index_ids', {})
+        self.id_to_doc = metadata.get('id_to_doc', {
             'day': {}, 'memory': {}, 'section': {}, 'line': {}
-        }
-        self.id_counters = {
+        })
+        self.id_counters = metadata.get('id_counters', {
             'day': 0, 'memory': 0, 'section': 0, 'line': 0
-        }
+        })
         
         # Progress tracking
         self.indexing_status = {
@@ -53,11 +57,43 @@ class VectorStore:
             return faiss.IndexIDMap(index)
         return faiss.IndexIDMap(faiss.IndexFlatIP(self.vector_dim))
 
+    def _load_metadata(self):
+        """Load metadata from disk."""
+        metadata_file = os.path.join(config["faiss_dir"], "metadata.json")
+        if os.path.exists(metadata_file):
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                # Convert string keys back to integers for id_to_doc
+                for seg_type in metadata['id_to_doc']:
+                    metadata['id_to_doc'][seg_type] = {
+                        int(k): v for k, v in metadata['id_to_doc'][seg_type].items()
+                    }
+                return metadata
+            except Exception as e:
+                print(f"Error loading metadata: {e}")
+        return {}
+
+    def _save_metadata(self):
+        """Save metadata to disk."""
+        metadata = {
+            'file_index_ids': self.file_index_ids,
+            'id_to_doc': self.id_to_doc,
+            'id_counters': self.id_counters
+        }
+        metadata_file = os.path.join(config["faiss_dir"], "metadata.json")
+        try:
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f)
+        except Exception as e:
+            print(f"Error saving metadata: {e}")
+
     def save_indices(self):
-        """Save all FAISS indices to disk."""
+        """Save all FAISS indices and metadata to disk."""
         for index_type, index in self.indices.items():
             filename = os.path.join(config["faiss_dir"], f"index_{index_type}.faiss")
             faiss.write_index(index, filename)
+        self._save_metadata()
 
     def start_indexing(self, total_files):
         """Start an indexing session."""

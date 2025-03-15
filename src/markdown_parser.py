@@ -4,17 +4,8 @@ import os
 from .config import config, TZ
 
 def normalize_timestamps(text: str) -> str:
-    """Convert millisecond timestamps to human-readable format and remove end time."""
-    # First remove endMs parameter
-    text = re.sub(r'&endMs=\d{13}', '', text)
-    
-    # Then convert startMs to human-readable format
-    pattern = re.compile(r'#?startMs\s*[:=]\s*(\d{13})')
-    def _replace(match):
-        ms = int(match.group(1))
-        dt = datetime.fromtimestamp(ms/1000.0, TZ)
-        return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    return pattern.sub(_replace, text)
+    """No longer needed as we're using a different timestamp format."""
+    return text
 
 def get_file_date(path: str):
     """Extract date from file path or name."""
@@ -49,8 +40,8 @@ def parse_markdown_content(content: str):
             continue  # Skip memory titles in day content
         elif line.startswith('## '):
             day_lines.append(line[3:].strip())
-        elif line.startswith('>'):
-            day_lines.append(line[1:].strip())
+        elif line.startswith('- '):
+            day_lines.append(line[2:].strip())
         else:
             day_lines.append(line)
     day_text = "\n".join(day_lines).strip()
@@ -117,8 +108,8 @@ def parse_markdown_content(content: str):
                 current_mem_all_lines.append("")  # Add blank line before section
                 current_mem_all_lines.append(line)  # Add section header with ## to memory
 
-        elif line.startswith('>'):
-            line_text = line[1:].strip()
+        elif line.startswith('- '):
+            line_text = line[2:].strip()
             if line_text:
                 segments['line'].append({
                     "text": line_text,
@@ -128,22 +119,22 @@ def parse_markdown_content(content: str):
                 })
             if current_sec_title is not None:
                 current_sec_lines.append(line_text)
-                current_sec_all_lines.append(line)  # Add to section with quote
-                current_mem_all_lines.append(line)  # Add to memory with quote
+                current_sec_all_lines.append(line)  # Add to section with bullet
+                current_mem_all_lines.append(line)  # Add to memory with bullet
             elif current_mem_title is not None:
                 current_mem_lines.append(line_text)
-                current_mem_all_lines.append(line)  # Add to memory with quote
+                current_mem_all_lines.append(line)  # Add to memory with bullet
             continue
 
         if current_sec_title is not None:
             if not line.startswith('## '):
-                if not line.startswith('>'):
+                if not line.startswith('- '):
                     current_sec_lines.append(line)
                     current_sec_all_lines.append(line)  # Add to section
                     current_mem_all_lines.append(line)  # Add to memory
         elif current_mem_title is not None:
             if not line.startswith('# '):
-                if not line.startswith('>'):
+                if not line.startswith('- '):
                     current_mem_lines.append(line)
                     current_mem_all_lines.append(line)  # Add to memory
 
