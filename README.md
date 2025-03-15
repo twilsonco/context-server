@@ -1,6 +1,6 @@
 # Personal Context Server
 
-![context-server](https://raw.githubusercontent.com/Maclean-D/context-server/main/context-server.png)
+![context-server](https://github.com/Maclean-D/context-server/raw/main/context-server.png)
 
 A server that puts your Limitless AI lifelog into indexed markdown files, and makes it available through a REST API and web interface.
 
