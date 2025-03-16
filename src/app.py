@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import json
 import os
 import logging
+import asyncio
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,9 @@ watcher = MDWatcher(os.path.abspath(config["docs_dir"]), vector_store)
 last_full_index_time = None
 last_change_index_time = None
 
+# Global state for background task
+sync_task = None
+
 def get_new_files_since(last_indexed_date):
     """Get list of files modified since the last indexed date."""
     new_files = []
@@ -54,9 +59,23 @@ def get_new_files_since(last_indexed_date):
         print(f"Error getting new files: {e}")
     return new_files
 
+async def periodic_sync():
+    """Background task to periodically sync lifelogs."""
+    while True:
+        try:
+            if config.get("limitless_api_key"):
+                logger.info("Running periodic sync of lifelogs...")
+                sync_lifelogs()
+            await asyncio.sleep(config.get("sync_interval_minutes", 3) * 60)
+        except Exception as e:
+            logger.error(f"Error in periodic sync: {e}")
+            await asyncio.sleep(60)  # Wait a minute before retrying on error
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the server and sync/index only new files."""
+    global sync_task
+    
     if not os.path.exists(config["docs_dir"]):
         os.makedirs(config["docs_dir"])
     
@@ -90,11 +109,16 @@ async def startup_event():
     
     # Start the file watcher
     watcher.start()
+    
+    # Start periodic sync task
+    sync_task = asyncio.create_task(periodic_sync())
 
 @app.on_event("shutdown")
 def on_shutdown():
     """Clean up on application shutdown."""
     logger.info("Application shutting down...")
+    if sync_task:
+        sync_task.cancel()
     watcher.stop()
     logger.info("Shutdown complete")
 
@@ -123,7 +147,8 @@ def get_settings():
             "recency_weight": config["recency_weight"],
             "n_candidates": config["n_candidates"],
             "n_results": config["n_results"],
-            "limitless_api_key": config.get("limitless_api_key", "")
+            "limitless_api_key": config.get("limitless_api_key", ""),
+            "sync_interval_minutes": config.get("sync_interval_minutes", 3)
         },
         "status": {
             "last_full_index_time": last_full_index_time,
@@ -151,6 +176,7 @@ def update_settings(new_settings: dict):
     - n_candidates: Integer, number of initial candidates for reranking
     - n_results: Integer, number of final results to return
     - limitless_api_key: String, API key for Limitless integration
+    - sync_interval_minutes: Integer, sync interval in minutes
 
     Note: Some changes may require an index refresh to take effect.
 
@@ -166,7 +192,7 @@ def update_settings(new_settings: dict):
     allowed = {
         "timezone", "include_titles", "retrieval_mode",
         "recency_weight", "n_candidates", "n_results",
-        "limitless_api_key"
+        "limitless_api_key", "sync_interval_minutes"
     }
     
     for key, value in new_settings.items():
@@ -189,6 +215,8 @@ def update_settings(new_settings: dict):
             elif key == "limitless_api_key":
                 # Trigger a sync when API key is updated
                 sync_lifelogs(value)
+            elif key == "sync_interval_minutes":
+                config[key] = int(value)
 
     try:
         with open(CONFIG_PATH, 'w') as f:
@@ -471,6 +499,10 @@ def serve_ui():
             <label>API Key:</label>
             <input type="password" id="api_key" value="{config.get("limitless_api_key", "")}" size="40"/>
           </div>
+          <div class="field">
+            <label>Sync Interval:</label>
+            <input type="number" id="sync_interval" value="{config.get("sync_interval_minutes", 3)}" min="1"/> minutes
+          </div>
           <button onclick="saveSettings()">Save Settings</button>
         </div>
         <div class="section">
@@ -503,7 +535,8 @@ def serve_ui():
               recency_weight: parseFloat(document.getElementById('recency').value) || 0.0,
               n_candidates: parseInt(document.getElementById('n_candidates').value) || 10,
               n_results: parseInt(document.getElementById('n_results').value) || 5,
-              limitless_api_key: document.getElementById('api_key').value
+              limitless_api_key: document.getElementById('api_key').value,
+              sync_interval_minutes: parseInt(document.getElementById('sync_interval').value) || 3
             }};
             fetch('/api/settings', {{
               method: 'POST',

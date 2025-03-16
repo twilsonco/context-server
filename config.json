@@ -10,5 +10,6 @@
   "n_results": 5,
   "port": 5712,
   "faiss_dir": "./faiss_index",
-  "limitless_api_key": ""
+  "limitless_api_key": "",
+  "sync_interval_minutes": 30
 }
