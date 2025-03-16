@@ -2,7 +2,7 @@
 
 ![context-server](https://github.com/Maclean-D/context-server/raw/main/context-server.png)
 
-A server that puts your Limitless AI lifelog into indexed markdown files, and makes it available through a REST API and web interface.
+Server converting Limitless AI lifelogs into indexed markdown, searchable via REST API and web UI
 
 ## Features
 
